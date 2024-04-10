@@ -1,160 +1,148 @@
-library(recount3)
-
-#source('src/rcount.as.utils.R')
-
-
-# load counts ######
-human_projects <- recount3::available_projects()
-proj_info <- subset(
-  human_projects,
-  project == "ERP109002" & project_type == "data_sources"
-)
-
-rse.ERP109002 = create_rse(proj_info)  # genes
-rse.ERP109002.jxn <- create_rse(proj_info,
-                                type="jxn") # junctions
-
-# write R object to a file
-#saveRDS(rse.ERP109002,'rse.ERP109002.rds')
-#saveRDS(rse.ERP109002.jxn,'rse.ERP109002.jxn.rds') 
-
-genes = rbind(data.frame(gene_name=c('CYFIP1','CYFIP2','NCKAP1','NCKAP1L','ABI1','ABI2','ABI3','WASF1','WASF2','WASF3','BRK1'),group='WAVE'),
-              data.frame(gene_name=c('NHS','NHSL1','NHSL2','KIAA1522'),group='NHS'),
-              data.frame(gene_name=c('ARPC1A','ARPC1B','ARPC2','ARPC3','ARPC4','ARPC5','ACTR2','ACTR3','ACTR3B'),group='Arp2/3'))
-
-# leaving only citoskeleton genes in rse.ERP109002
-genes_annotaion = as.data.frame(rse.ERP109002@rowRanges[rse.ERP109002@rowRanges$gene_name %in% genes$gene_name,])
-
-# adding group names
-genes_annotaion$group = genes$group[match(genes_annotaion$gene_name,genes$gene_name)]
-
-# leaving only genes on main chr
-genes_annotaion = genes_annotaion[startsWith(as.character(genes_annotaion$seqnames),'chr'),]
-#saveRDS(genes,'rds/sel.genes.rds')
-
-#-----------------------------------------
-
-# junxtion "annotation"
-# intersecting ranges
-overlaps = findOverlaps(query = rse.ERP109002.jxn@rowRanges, 
-                        subject = rse.ERP109002@rowRanges[genes_annotaion$gene_id], 
-                        type='any') # or within?
-# посмотреть на те которы не входят в within?
-
-#?
-#rse.ERP109002.jxn@rowRanges[64106]
-#rse.ERP109002@rowRanges[genes_annotaion$gene_id][1]
-# junction is larger than gene?
-
-rse.ERP109002.jxn.cytosk = rse.ERP109002.jxn[overlaps@from,]  
-rse.ERP109002.jxn.cytosk@rowRanges$gene_id = genes_annotaion$gene_id[overlaps@to]
-rse.ERP109002.jxn.cytosk@rowRanges$gene_name = genes_annotaion$gene_name[overlaps@to]
-
+source("data.R")
 
 # functions ---------------------
-makeSites = function(jxns){ # junxtions of a gene
-  jxns = unique(as.data.frame(jxns)) # chosing only unique rows nothing changes
-  if(nrow(jxns)==0) # nrow returns number of rows (junxtions)
+makeSites = function(junctions.info){ # junxtions of a gene
+  junctions.info = unique(as.data.frame(junctions.info)) # choosing only unique rows nothing changes
+  if(nrow(junctions.info)==0) 
     return(NULL) # if there are no junctions, return null
   
   #--
-  # merging junctions by leftmost and rightmost coordinate
-  jxns$rightmost = jxns$leftmost =  NA  # adding 2 columns for rightmost and leftmost coordinates of a junction
-  jxns$jxn.id = rownames(jxns) # adding a column with coordinates of each junction for gene i ("chrX:71910743-71913070:+" "chrX:71910743-71958862:+")
+  # adding extra columns
+  junctions.info$rightmost = junctions.info$leftmost =  NA  # adding 2 columns for rightmost and leftmost coordinates of a junction
+  junctions.info$id = rownames(junctions.info) # adding a column with coordinates of each junction for gene i ("chrX:71910743-71913070:+" "chrX:71910743-71958862:+")
 
   #--
-  jxns_l = jxns_r = jxns  # duplicating jxns
-  jxns_l$side = 'l' # adding a column 'side'
-  jxns_r$side = 'r' # start and end coordinates of a junction
-  rownames(jxns_l) = paste0(rownames(jxns_l),':',jxns_l$gene_name,':l')
-  rownames(jxns_r) = paste0(rownames(jxns_r),':',jxns_r$gene_name,':r')
+  # dublicating df
+  junctions.info.start.fixated = junctions.info.end.fixated = junctions.info  # duplicating jxns dataframe
+  junctions.info.start.fixated$side = 'l' # adding a column 'side'
+  junctions.info.end.fixated$side = 'r' 
+  
+  # in duplicated dfs formatting rownames
+  rownames(junctions.info.start.fixated) = 
+    paste0(rownames(junctions.info.start.fixated),':',junctions.info.start.fixated$gene_name,':l')
+  rownames(junctions.info.end.fixated) = 
+    paste0(rownames(junctions.info.end.fixated),':',junctions.info.end.fixated$gene_name,':r')
 
   #----------
-  js2j = list() #?
-  for(i in 1:nrow(jxns_l)){ # number of rows in jl (which is equal to nrow(j))
-    # finding same start coordinates
-    jxns_same_start_tf = jxns$start==jxns$start[i]  # true/false vector  for junction i
+  # forming a list, where key is a junction, and corresponding element is all junctions with same start/end coordinate
+  junctions.same.coordinate.list = list() 
+  
+  # filling in rigtmost and leftmost columns and the list
+  for(junction in 1:nrow(junctions.info)){ # number of rows in junctions.info
+    # same start (including the junction!)
+    # finding junctions with the start coordinate same to the junction
+    junctions.same.start.indicators = junctions.info$start == junctions.info$start[junction]  # true/false vector for the junction
+    # adding to the list [the junction coordinate] as a key, and all junctions that have the same start as the junction
+    junctions.same.coordinate.list[[rownames(junctions.info.start.fixated)[junction]]] = 
+      rownames(junctions.info)[junctions.same.start.indicators] # assigning junction.info rownames! They fill further be used to select rows from counts df. 
+    # --
+    # filling in leftmost column = start coordinate
+    junctions.info.start.fixated$leftmost[junction]  = 
+      unique(junctions.info$start[junctions.same.start.indicators]) 
+    # searching for the rightmost coordinate amongst junctions
+    junctions.info.start.fixated$rightmost[junction] = 
+      max(junctions.info$end[junctions.same.start.indicators])
+
+    # same end (including the junction!)
+    junctions.same.end.indicators = junctions.info$end==junctions.info$end[junction]
+    junctions.same.coordinate.list[[rownames(junctions.info.end.fixated)[junction]]] = 
+      rownames(junctions.info)[junctions.same.end.indicators]
     
-    # l - общее начало у джанкшенов
-    # list js2s: junction = all junctions with the same start/end junction
-    # берем имена строк jxns_l - они были изменены! (добавлено имя гена итд)
-    js2j[[rownames(jxns_l)[i]]] = rownames(jxns)[jxns_same_start_tf] # listing all jxn with the same start coord
-    # добавляем самый левый старт (они же должны ьыть одинаковые?)
-    jxns_l$leftmost[i]  = min(jxns$start[jxns_same_start_tf]) # the lefmost start coordinate, but all coordinates are the same, so it doesn't do anything
-    # добавляем самый последний конец соответсвующий этому началу
-    jxns_l$rightmost[i] = max(jxns$end[jxns_same_start_tf])
-
-    # r - общий конец
-    # right (doing the same thing for the end coordinate)
-    jxns_same_end_tf = jxns$end==jxns$end[i]
-    js2j[[rownames(jxns_r)[i]]] = rownames(jxns)[jxns_same_end_tf]
-    # добавляем самое первое начало соответствующий этому концу?? или
-    jxns_r$leftmost[i]  = min(jxns$start[jxns_same_end_tf])
-    jxns_r$rightmost[i] = max(jxns$end[jxns_same_end_tf])  # end rightmost coordinate
+    # --
+    junctions.info.end.fixated$leftmost[junction]  = 
+      min(junctions.info$start[junctions.same.end.indicators])
+    junctions.info.end.fixated$rightmost[junction] = 
+      unique(junctions.info$end[junctions.same.end.indicators]) 
   }
-  jxns_s = rbind(jxns_l,jxns_r) # binding dfs
-  list(jxns_s=jxns_s, js2j=js2j[rownames(jxns_s)]) # что такое rownames(..)?
-  # jxns_s - junction ... leftmost and rightmost isoforms ?
-  # js2j - jxns_s to jsnx - list of junctions with the same start for every junction
+  
+  # concatenating dataframes
+  junctions.info.start.end.fixated = rbind(junctions.info.start.fixated, junctions.info.end.fixated) 
+  
+  list(junctions.info.start.end.fixated = junctions.info.start.end.fixated, 
+       junctions.same.coordinate.list = junctions.same.coordinate.list[rownames(junctions.info.start.end.fixated)]) # elements to junctions.same.coordinate.list were asigned l after r. However, in df junctions.info.start.end.fixated first there is information for all l, than for all r. To make it corresponding, we will reorder the list
 }
 
-# for every gene separately finding starts and ends (they can be on different chromosomes and start/end can intersect)
 
-makeSAJR = function(jxns,min.cov=10){ # min.cov=10? filtering?
-  js = makeSites(jxns@rowRanges) # list, contaning jxns_s and js2j  
-
-  if(is.null(js))
+makeSAJR = function(rse.ERP109002.jxn.cytosk.gene,min.cov=10){ # min.cov was set based on binomial dispersion
+  junctions.info.gene = rse.ERP109002.jxn.cytosk.gene@rowRanges
+  counts.gene = as.matrix(rse.ERP109002.jxn.cytosk.gene@assays@data$counts) 
+  
+  junctions.sites.list = makeSites(junctions.info.gene) # list, contaning jxns_s and js2j  
+  if(is.null(junctions.sites.list))
     return(NULL)
-
-  counts = as.matrix(jxns@assays@data$counts) 
+  junctions.info.start.end.fixated = junctions.sites.list$junctions.info.start.end.fixated
+  junctions.same.coordinate.list = junctions.sites.list$junctions.same.coordinate.list
   
-  # i - intron
-  # e - exon
-  # ir - intron retention
-  i = e = matrix(0, nrow=nrow(js$jxns_s), ncol=ncol(counts)) # making 2 matrixes ??
-  colnames(i) = colnames(e) = colnames(counts) # samples
-  rownames(i) = rownames(e) = rownames(js$jxns_s) # ??????????????????????????????????
+  # inclusion ratio calculation
+  # -- creating count matrixes
   
-  for(j in 1:nrow(js$jxns_s)){    # заполняем матрицу
-    i[j,] = counts[js$jxns_s$jxn.id[j], ] # из матрицы каунтов выбираем
-    e[j,] = apply(counts[js$js2j[[j]], , drop=F], 2, sum) # сумма ..?
+  # inclusion segments - reads theat map to the segment itself (cassette exon)
+  # exclusion segments - reads that map to junction between upstream and downstream segments
+  # all segments - reads that map to junction between upstream and downstream segments + reads that map to the junction
+  
+  junction.counts.inclusion = junction.counts.all.same.coordinate = matrix(0, nrow=nrow(junctions.info.start.end.fixated), ncol=ncol(counts.gene)) 
+  colnames(junction.counts.inclusion) = colnames(junction.counts.all.same.coordinate) = colnames(counts.gene) # samples
+  rownames(junction.counts.inclusion) = rownames(junction.counts.all.same.coordinate) = rownames(junctions.info.start.end.fixated)
+  
+  # -- filling in count matrixes
+  for(junction in 1:nrow(junctions.info.start.end.fixated)){    
+    # counts for each sample are stored in counts.gene. New matrix's columns are asigned names same to colnames(counts.gene). 
+    # when filling in matrix, counts are taken from counts.gene df, so counts for samples in matrix and df counts.gene are filled in correctly. 
+    
+    # selecting all raw of counts for junctions (number of inclusion)
+    junction.counts.inclusion[junction,] = counts.gene[junctions.info.start.end.fixated$id[junction], ] # id column contains same junction ids as in count matrix
+    
+    junction.counts.all.same.coordinate[junction,] = apply(counts.gene[junctions.same.coordinate.list[[junction]], , drop=F], 2, sum)
+    # drop=F prevents R from converting single column to vector. But here is not a single column?
+    # rows from count.gene df are selected, and we sum counts for excluded (alternative) junctions for each column (sample) - 2 (apply to column), sum (function to apply)
   }
   
-  ir = i/e   # intron retention
-  ir[e<min.cov] = NA
-  e = e - i 
-  r = list(seg=js$jxns_s, i=i, e=e, ir=ir)   # seg here
-  class(r)='sajr'
-  r
+  # inclusion ratio - the proportion of transcripts that contains a segment
+  junction.counts.inclusion.ratio = junction.counts.inclusion/junction.counts.all.same.coordinate # matrix
+  junction.counts.inclusion.ratio[junction.counts.all.same.coordinate < min.cov] = NA # frequency of inclusion is not defined (min.cov = 10, set based on binomial distribution dispersion)
+  
+  # exclusion counts. Substract included junctions from all
+  junction.counts.exclusion = junction.counts.all.same.coordinate - junction.counts.inclusion 
+  
+  sajr.gene = list(seg=junctions.info.start.end.fixated, i=junction.counts.inclusion, e=junction.counts.exclusion, ir=junction.counts.inclusion.ratio) 
+  class(sajr.gene)='sajr'
+  sajr.gene
 }
 
+# почитать про psi!
 
 # -------------------------------
 sajr = NULL
 
+# for each cytoskeleton gene
+for(gene in 1:nrow(genes.annotaion)){ 
+  # gene id
+  gene.id = rownames(genes.annotaion)[gene] # 
+  # selecting information only for the gene
+  rse.ERP109002.jxn.cytosk.gene = rse.ERP109002.jxn.cytosk.genes[rse.ERP109002.jxn.cytosk.genes@rowRanges$gene_id==gene.id,]  
+  # making sajr object for the geme
+  sajr.gene =  makeSAJR(rse.ERP109002.jxn.cytosk.gene) 
 
-# на вход даем гены! это правильно?
-for(i in 1:nrow(genes_annotaion)){ # for each gene
-  gene_id=rownames(genes_annotaion)[i] # gene id
-  jxns = rse.ERP109002.jxn.cytosk[rse.ERP109002.jxn.cytosk@rowRanges$gene_id==gene_id,] # RangedSummarizedExperiment for a gene 
-
-  # t?
-  t =  makeSAJR(jxns) # passing rse object for gene i to function makeSAJR
-
-  if(is.null(t))
+  if(is.null(sajr.gene))
     next
   
-  t$seg$gene_id = gene_id
-  t$seg$gene_names = genes_annotaion$gene_name[i]
+  # those columns already exist in seg
+  # adding columns to seg (=junctions.info.start.end.fixated)
+  #sajr.gene$seg$gene_id = gene.id # what's gene id????????????????????????????????????????
+  #sajr.gene$seg$gene_names = genes.annotaion$gene_name[gene] # name of the gene
+  
+  # making combined sajr object for all genes
   if(is.null(sajr))
-    sajr = t
-
+    sajr = sajr.gene
   else{
-    for(j in names(sajr)){
-      sajr[[j]] = rbind(sajr[[j]],t[[j]])
+    for(element in names(sajr)){ # combining seg with seg, e with e, etc for each element, for every gene
+      sajr[[element]] = rbind(sajr[[element]],sajr.gene[[element]])
+      
     }
   }
 }
 
-sajr
+# нет gene names!
+sajr$seg
+
 
