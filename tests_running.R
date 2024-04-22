@@ -2,48 +2,19 @@ source("samples_ann_preprocessing.R")
 source("create_sajr_object.R")
 source("create_DJexpress_object.R")
 
-
-# install.packages("dynamicTreeCut")
-# BiocManager::install("edgeR")
-# install.packages("fastcluster")
-# install.packages("highcharter")
-# BiocManager::install("impute")
-# BiocManager::install("preprocessCore")
-# install.packages("WGCNA")
-# install.packages('MatrixEQTL')
-# install.packages('/home/an/bin/DJExpress_0.1.0.tar.gz', repos = NULL, type="source")
-library(DJExpress)
-library("recount3")
-library("dbplyr")
-library("tidyr")
-library("readr")
-library('tibble')
-
-library("dplyr")
-library("gtools")
-library('gridExtra')
-library("tidyr")
-library("ggplot2")
-#/??
-
-#  metadata for brain and testies samples
-samples_bt = samples_meta[samples_meta$tissue %in% c('Brain','Testis') & samples_meta$age_group=="adult",]
-
-b = rownames(samples_bt[samples_bt$tissue=='Brain',])
-t = rownames(samples_bt[samples_bt$tissue=='Testis',])
-
+# ?????? что за бардак?
 
 ##########################################################################
 # SAJR
 ##########################################################################
 
 #  -----------------
-brain_adult_samples = samples_meta[samples_meta$tissue=="Brain" & samples_meta$age_group=="adult",]
-testies_adult_samples = samples_meta[samples_meta$tissue=="Testis" & samples_meta$age_group=="adult",]
+rse = rse.ERP109002.jxn.cytosk.genes[,rse.ERP109002.jxn.cytosk.genes@colData$tissue %in% c('Brain','Testis') & 
+                                       rse.ERP109002.jxn.cytosk.genes@colData$age_group=="adult"]
 
 #----------------??
-b = rownames(brain_adult_samples)
-t = rownames(testies_adult_samples)
+b = rownames(rse@colData[rse@colData$tissue=='Brain',])
+t = rownames(rse@colData[rse@colData$tissue=='Testis',])
 b
 t
 
@@ -69,35 +40,80 @@ sum(sgn,na.rm=T)
 unique(sajr$seg$gene_names[sgn])
 # [1] "WASF3"  "ACTR2"  "ABI2"   "WASF1"  "ACTR3B"
 
-
-
+# что то тут сломалось!?
+# там посчитал l2fc
 
 #====================================================================================
 # -----------------------------------DJExpress---------------------------------------
 #====================================================================================
 # Run DJEanalyze
-anlz.out <- DJEanalyze(prepare.out = out.file, Group1 = b,
-                       FDR = 0, logFC = 0)
+dje_out = 
+  makeDJexpress(condition.1 = 'Brain', condition.2='Testis', reference.condition='Brain', FDR.threshold=0, logFC.threashold=0)
 
-dje_out = anlz.out$dje.out
+#dje_out = anlz.out$dje.out
 
-dim(anlz.out$dje.out)
+#str(anlz.out)
+# Number of junctions in both methods
+dim(dje_out)
 dim(r)/2
 
+################################################################################
+# Comparison
+################################################################################
+# Merging SAJR and DJexpress results
+# formatting junction id column, to use it for merging
 strand_dict = c('+'=1, '-'=2, "*"=0)
 r$junctionID = rownames(r)
 r$junctionID = sapply(r$junctionID, function(x) sub('(\\d+)(-)(\\d+)', '\\1:\\3', x))
 r$junctionID = sapply(r$junctionID, function(x) sub('([-*+])(:)(.)+', '\\1', x))
 r$junctionID = sapply(r$junctionID, function(x) sub('.$', strand_dict[sub('.*(?=.$)', '', x, perl=T)], x))
-
 m = merge(r, dje_out, by='junctionID')
 
-plot(m$dpsi, m$logFC, log='xy', xlab = "dpsi", ylab = "logFC")
+# Plots
+plot(m$dpsi, m$logFC, xlab = "dpsi", ylab = "logFC")
 plot(m$pv, m$P.Value, log='xy', xlab = "pv", ylab = "P.Value")
+plot(m$l2fc, m$logFC)
 
+# Correlation
 p=na.omit(m[c('pv', 'P.Value')])
 a=na.omit(m[c('dpsi', 'logFC')])
-
-cor(d$pv, d$P.Value, method = "spearman")
+d = na.omit(m[c('l2fc', 'logFC')])
+cor(p$pv, p$P.Value, method = "spearman")
 cor(a$dpsi, a$logFC, method = "spearman")
+cor(d$l2fc, d$logFC, method = "spearman")
 
+
+# Number of events not represented on the plot
+table(is.na(m$dpsi))
+table(is.na(m$logFC))
+
+
+# ================= DIEGO =====================
+dje_out$junctionIDDiego = 
+  sapply(dje_out$junctionID, function(x) sub('(\\d{3,})(:)(\\d{3,})', '\\1-\\3', x))
+dje_out$junctionIDDiego = 
+  sapply(dje_out$junctionIDDiego, function(x) sub('(\\d{3,})(:)(\\d)', '\\1', x))
+
+r$junctionIDDiego = 
+  sapply(rownames(r), function(x) sub('(\\d{3,})(:.+)', '\\1', x))
+
+diego_output = read.table('./DIEGO_output', sep = "\t", header = TRUE)
+dim(diego_output)
+
+colnames(diego_output)[colnames(diego_output) == "junction"] <- "junctionIDDiego"
+
+m = merge(diego_output, dje_out, by='junctionIDDiego')
+cor(m$abundance_change, m$logFC, method = "spearman")
+
+plot(m$abundance_change, m$logFC)
+
+m = merge(diego_output, r, by='junctionIDDiego')
+a=na.omit(m[c('dpsi', 'abundance_change')])
+
+cor(a$abundance_change, a$dpsi, method = "spearman")
+plot(m$abundance_change, m$dpsi)
+
+
+head(dje_out)
+
+#junction

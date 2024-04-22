@@ -51,3 +51,23 @@ overlaps = findOverlaps(query = rse.ERP109002.jxn@rowRanges,
 rse.ERP109002.jxn.cytosk.genes = rse.ERP109002.jxn[overlaps@from,]  
 rse.ERP109002.jxn.cytosk.genes@rowRanges$gene_id = genes.annotaion$gene_id[overlaps@to]
 rse.ERP109002.jxn.cytosk.genes@rowRanges$gene_names = genes.annotaion$gene_name[overlaps@to]
+
+
+#?????? перенести этот код до оверлепинга!? Что за ворнинг?
+# -- removing duplicates
+counts = as.matrix(rse.ERP109002.jxn.cytosk.genes@assays@data$counts) 
+# duplicated junctions
+rownames(counts)[duplicated(rownames(counts))]
+table(duplicated(rownames(counts)))
+# adding column with junction ids (to make sure that it finds duplicates only for the same junctions)
+counts = cbind(ids=rownames(counts), counts)
+# dropping duplicated rows
+rse.ERP109002.jxn.cytosk.genes = rse.ERP109002.jxn.cytosk.genes[which(!duplicated(counts)),]
+
+# checking
+#counts = as.matrix(rse.ERP109002.jxn.cytosk.genes@assays@data$counts) 
+#table(duplicated(rownames(counts)))
+
+
+# preprocessing annotation
+#source('samples_ann_preprocessing.R')

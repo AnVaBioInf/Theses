@@ -1,4 +1,4 @@
-source("data.R")
+source("samples_ann_preprocessing.R")
 
 # functions ---------------------
 makeSites = function(junctions.info){ # junxtions of a gene
@@ -141,8 +141,3 @@ for(gene in 1:nrow(genes.annotaion)){
     }
   }
 }
-
-# нет gene names!
-sajr$seg
-
-

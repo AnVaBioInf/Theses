@@ -1,155 +1,67 @@
-#install.packages('devtools')
-#devtools::install_version("dbplyr", version = "2.3.4")
+#source("data.R")
+#source("samples_ann_preprocessing.R")
 
-#if (!requireNamespace("BiocManager", quietly = TRUE)) {
-#  install.packages("BiocManager")
-#}
-#BiocManager::install(c("recount3", "SRAdb"))
-## Check that you have a valid Bioconductor installation
-#BiocManager::valid()
+# selecting only adult brain and testies samples
 
-#install.packages("tidyr")
+makeAFile = function(rse.filtered,tissue){
+  # -- a file (table of splice junction supports per sample)
+  counts = as.matrix(rse.filtered@assays@data$counts)
+  counts = as.data.frame(counts)
+  
+  counts$chr_start_stop = 
+    sapply(rownames(counts), function(x) sub('([0-9]+)(:)([-+*])', '\\1' , x))
+  counts$type = 'N_w'
+  counts$gene_identifier = rse.filtered@rowRanges$gene_id
+  counts$gene_name = rse.filtered@rowRanges$gene_names
 
-library("recount3")
-library("dbplyr")
-library("tidyr")
-library("readr")
+  a.input.file = counts[c('chr_start_stop', 'type', colnames(counts), 'gene_identifier', 'gene_name')]
+  colnames(a.input.file) =  c('junction', 'type', colnames(counts), 'geneID', 'geneName')
+  
+  rownames(a.input.file) = NULL
+  write.table(a.input.file, 
+              paste0("/home/an/DIEGO_input_files/a.input.file",tissue), 
+              sep = "\t", 
+              row.names = FALSE, col.names = TRUE, quote = FALSE)
+}
 
-#----------------downloading dataset-----------------------------
-human_projects <- recount3::available_projects()
+makeBFile = function(rse.filtered, tissue){
+  # --b file (condition to sample relation in the format: condition tab-delimiter sampleName)
+  b_file = rse.filtered@colData[,'age_group',drop=F]
+  b_file$count_column_name = rownames(b_file)
 
-proj_info <- subset(
-  human_projects,
-  project == "ERP109002" & project_type == "data_sources"
-)
+  # b_file = b_file[order(b_file$tissue), ]
+  colnames(b_file) = c('group identifier', 'count_column_name')
+  rownames(b_file) = NULL
 
-# access the gene level expression data
-# create RSE object 
-rse_exon_ERP109002 <- create_rse(proj_info,
-                                type="exon")
-## !! Выбрала экзоны, потому что DIEGO с ними тоже работает и у них есть 
-# генная аннотация, а у junction нет. Наверное, нужно подумать как переделать,
-# чтобы входные данные между программами не различались?
+  write.table(b_file,
+              paste0("/home/an/DIEGO_input_files/b_file",tissue),
+              sep = "\t",
+              row.names = FALSE, col.names = FALSE, quote = FALSE)
+}
 
-#-------------------------gene metadata-------------------------------
+makeDiegoInputFiles = function(rse.filtered, tissue){
+  makeAFile(rse.filtered, tissue)
+  makeBFile(rse.filtered, tissue)
+}
 
-# genes metadata matrix
-gene_meta = rowRanges(rse_exon_ERP109002)@elementMetadata 
-gene_meta@listData$type = as.character(gene_meta@listData$type)
-gene_meta = gene_meta %>%
-  as.matrix()
+# -x file (specify base condition)
+# Brain
 
-# leave only data needed in Diego input file
-gene_ids = gene_meta[,c('recount_exon_id', 'type', 'gene_id', 'gene_name')]
-head(gene_ids)
-
-
-#-------------------------sample metadata-----------------------------
-
-# https://bioconductor.org/packages/3.18/bioc/vignettes/SummarizedExperiment/inst/doc/SummarizedExperiment.html
-# finding only heart and testicles samples
-samples = colData(rse_exon_ERP109002)
-sample_ids = samples[grep("Heart.10w.Male|Testis.10w.Male", samples$sra.library_name),] %>% 
-  row.names()
-
-#--------------------------counts-----------------------------
-
-# exon expression data (heart, testicles) 
-# converting sparse counts matrix to matrix
-exon_counts = assays(rse_exon_ERP109002)[[1]][, sample_ids] %>%
-  as.matrix()
-exon_counts = cbind(recount_exon_id=rownames(exon_counts), exon_counts) # cbind converts all columns to character, since matrix can contain only one type of data
-head(exon_counts)
-
-#===================================================================================
-#==============================DIEGO=================================================
-#====================================================================================
-#--------------------------diego imput-----------------------------
-# merge counts and metadata matrixes
-data = merge(exon_counts, gene_ids, by = "recount_exon_id", all.x = TRUE, all.y=FALSE, sort=FALSE)
-head(data)
-
-# -----------------------cytoskeleton genes
-# filtering matrixes
-# leaving onle cytosceleton genes
-genes_citosceleton = c('WASF2', 
-                       'KIAA1522', 
-                       'ARPC5', 
-                       'ABI1', 
-                       'NCKAP1L', 
-                       'ARPC3', 
-                       'WASF3', 
-                       'CYFIP1', 
-                       'ABI3', 
-                       'ACTR2', 
-                       'ACTR3', 
-                       'NCKAP1', 
-                       'ABI2', 
-                       'ARPC2',
-                       'ARPC4', 
-                       'BRK1', 
-                       'CYFIP2', 
-                       'WASF1', 
-                       'NHSL1', 
-                       'ARPC1A', 
-                       'ARPC1B', 
-                       'ACTR3B', 
-                       'NHS', 
-                       'NHSL2')
-
-diego_count_input = data[data$gene_name %in% genes_citosceleton,]
-diego_count_input
-
-# check if all genes of interest are in a dataset
-unique(diego_count_input$gene_name) %>%
-  length() == length(genes_citosceleton)
-
-# ----------------- filtering low covarage genes
-# filtering out exonы with low expression
-expressed_genes = diego_count_input[ , grepl( "ERR" , names( diego_count_input ) ) ] %>%
-  sapply(as.numeric) %>%
-  apply( 1, FUN = min) >2
-
-diego_count_input = diego_count_input[expressed_genes,]
+# Есть ли какая-то фильтрация в DIEGO?
+# to run DIEGO in terminal
+# conda create -n DIEGO_1 numpy=1.9 scipy matplotlib
+# Packages were reinstalled because -e (for drawing dendrograms) wasn't working (numpy 1.9 installed instead, and than other packages reinstalled, in the above code I specified numpy version, idk if it will help)
+# conda activate DIEGO_1
+# cp /home/an/DIEGO_input_files/a.input.file /home/an/DIEGO_input_files/b_file /home/an/anaconda3/envs/DIEGO_1
+# wget http://legacy.bioinf.uni-leipzig.de/Software/DIEGO/DIEGO.tar.gz
+# tar -xzf DIEGO.tar.gz
+# python DIEGO/diego.py -a a.input.file -b b_file -x fetus --minsupp 1 -d 1 -q 1.0 -z 1.0  > DIEGO_output
 
 
-# ------------------formatting data for Diego
-# editing matrix to fit Diego requirements for an input file
-diego_count_input = diego_count_input %>%
-  separate(recount_exon_id, c("chr", "start", "end", "strand"), "\\|")
-
-diego_count_input[,"chr:start-stop"] = 
-  paste0(diego_count_input[,'chr'], ":", diego_count_input[,'start'], "-", diego_count_input[,'end'])
-head(diego_count_input)
-c(c('1', 
-  'type'), sample_ids)
-
-colnames=c(
-  c('chr:start-stop', 'type'), 
-  sample_ids,
-  c('gene_id', 'gene_name')
-  )
-
-diego_count_input = diego_count_input[, colnames]
-colnames(diego_count_input)[ncol(diego_count_input)] = "gene name"
-colnames(diego_count_input)[ncol(diego_count_input)-1] = "gene identifier"
-head(diego_count_input)
-
-# extracting to file with tab delim
-write_delim(diego_count_input, "/home/an/diego_count_input.txt", delim = "\t")
 
 
-# -------------- Diego input file #2 (group-sample)
-
-condition = samples[grep("Heart.10w.Male|Testis.10w.Male", samples$sra.library_name),][c('sra.library_name')]
-
-sub(".*?\\.", "", condition$sra.library_name) %>% length()
-row.names(condition) %>% length()
-
-
-diego_meta_input = data.frame(sub(".*?\\.", "", condition$sra.library_name),
-           row.names(condition))
-diego_meta_input
-
-write_delim(diego_meta_input, "/home/an/diego_meta_input.txt", delim = "\t", col_names=FALSE)
-
+# tissues=("Brain" "Heart" "Cerebellum" "Kidney" "Liver" "Testis")
+# 
+# for tissue in "${tissues[@]}"; do
+# python DIEGO/diego.py -a "/home/an/DIEGO_input_files/a.input.file${tissue}" -b "/home/an/DIEGO_input_files/b_file${tissue}" -x fetus --minsupp 1 -d 1 -q 1.0 -z 1.0 > "/home/an/DIEGO_output_files/DIEGO_output${tissue}"
+# done
