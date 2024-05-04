@@ -39,6 +39,7 @@ get.covs = function(gene){
     rse.ERP109002.jxn.cytosk.genes@rowRanges[rse.ERP109002.jxn.cytosk.genes@rowRanges$gene_names==gene,]
   rse.gene = 
     rse.ERP109002.jxn.cytosk.genes[rse.ERP109002.jxn.cytosk.genes@rowRanges$gene_names==gene,]
+  
   sample.ids = get.sample.ids(rse.gene,tissue)
   all.samples.ids = sample.ids[['all.samples.ids.tissue']]
   adult.samples.ids = sample.ids[['adult.samples.ids']]
@@ -62,6 +63,7 @@ get.covs = function(gene){
   list(fetus.covs.summed.gene=fetus.covs.summed.gene, adult.covs.summed.gene=adult.covs.summed.gene)
 }
 
+# --
 assign.colors = function(sign.jxns.info.dev.and.cancer){
   sign.colors = c("#E41A1C", "#4DAF4A", "#984EA3", "#FF7F00", "#FFFF33", "#A65628", "#F781BF")
   not.sign.colors = "#377EB8"
@@ -76,69 +78,75 @@ assign.colors = function(sign.jxns.info.dev.and.cancer){
   jxn.colors
 }
 
-set.colors = function(sign.jxns.info.dev.and.cancer, gene, covs){
+set.colors = function(sign.jxns.info.dev.and.cancer, jxn, covs){
   # to set color to sign jxn in the tissue
   jxn.colors = assign.colors(sign.jxns.info.dev.and.cancer)
   
   sign.gene.jxns.tissue.df = 
     sign.jxns.info.dev.and.cancer[sign.jxns.info.dev.and.cancer$tissue==tissue &
-                                  sign.jxns.info.dev.and.cancer$GeneID==gene , , drop=F]
+                                  sign.jxns.info.dev.and.cancer$unifiedJxnID==jxn , , drop=F]
   # colors
-  sign.jxn.col = jxn.colors[sign.gene.jxns.tissue.df$unifiedJxnID]
+  sign.jxn.col = jxn.colors[jxn]
   print(sign.gene.jxns.tissue.df)
   
   cols = sign.jxn.col[sub(':.$', '', rownames(covs$juncs))]
   cols = ifelse(is.na(cols),"#377EB8", cols)
   covs$juncs$cols = cols
+  print(table(unname(cols)))
   covs
-  # print(table(ifelse(sub(':.$', '', rownames(covs$juncs)) %in% names(sign.jxn.col),
-  #        sign.jxn.col[sub(':.$', '', rownames(covs$juncs))],
-  #        'blue')))
-  # 
-  # ifelse(sub(':.$', '', rownames(covs$juncs)) %in% names(sign.jxn.col),
-  #          sign.jxn.col[sub(':.$', '', rownames(covs$juncs))],
-  #          'blue'
-  # )
 }
 
 
 # for every gene
-for (gene in c('ACTR3B')){ # unique(sign.jxns.info.dev.and.cancer$GeneID)){
+for (jxn in unique(sign.jxns.info.dev.and.cancer$unifiedJxnID)){
   # setting number of plot rows to number of tissues where selected gene junctions were significant, but no more than 3
   # selecting significant junctions for the GENE in both, development and cancer
-  sign.gene.jxns.df = sign.jxns.info.dev.and.cancer[sign.jxns.info.dev.and.cancer$GeneID==gene,]
-  par(mfrow = c(min(length(unique(sign.gene.jxns.df$tissue)),3),2), bty='n')
+  sign.jxn.df = sign.jxns.info.dev.and.cancer[sign.jxns.info.dev.and.cancer$unifiedJxnID==jxn,]
+  gene = unique(sign.jxn.df$GeneID)
+  par(mfrow = c(min(length(unique(sign.jxn.df$tissue)),3),2), bty='n')
+  print(c("here, here", jxn))
   
   # for every tissue where any of selected junctions are significant
-  for (tissue in (unique(sign.gene.jxns.df$tissue))){ 
+  for (tissue in (unique(sign.jxn.df$tissue))){ 
     print(tissue)
     print(gene)
+    print(jxn)
     
     covs.summed.gene = get.covs(gene)
     fetus.covs.summed.gene =  covs.summed.gene[['fetus.covs.summed.gene']]
     adult.covs.summed.gene = covs.summed.gene[['adult.covs.summed.gene']]
-    gene.region.coords = get.gene.region(gene)
-    # same?
-    fetus.covs.summed.gene = set.colors(sign.jxns.info.dev.and.cancer, gene, fetus.covs.summed.gene)
-    adult.covs.summed.gene = set.colors(sign.jxns.info.dev.and.cancer, gene, adult.covs.summed.gene)
+    gene.region.coords = strsplit(jxn,'[:-]')
+    gene.region.coords = as.integer(c(gene.region.coords[[1]][2], gene.region.coords[[1]][3]))
+    gene.region.coords = c(gene.region.coords[1], gene.region.coords[2])
     
-    print(dim(adult.covs.summed.gene$juncs))
-    print(adult.covs.summed.gene$juncs[adult.covs.summed.gene$juncs$counts>1,])
-
-    # plotReadCov(fetus.covs.summed.gene,
-    #        #     junc.col = fetus.covs.summed.gene$cols,
-    #             xlim=gene.region.coords,
-    #             plot.junc.only.within = F,
-    #             min.junc.cov.f = 0.05,
-    #             sub='Before birth',
-    #             main=paste(tissue,gene)
-    #             )
-    plotReadCov(adult.covs.summed.gene,
-          #      junc.col = fetus.covs.summed.gene$cols,
+    print(gene.region.coords)
+    # same?
+    fetus.covs.summed.gene = set.colors(sign.jxns.info.dev.and.cancer, jxn, fetus.covs.summed.gene)
+    adult.covs.summed.gene = set.colors(sign.jxns.info.dev.and.cancer, jxn, adult.covs.summed.gene)
+  
+    
+    sign.jxn.tissue = sign.jxn.df[sign.jxn.df$tissue==tissue,]
+    
+    
+    plotReadCov(fetus.covs.summed.gene,
+                junc.col = fetus.covs.summed.gene$cols,
                 xlim=gene.region.coords,
                 plot.junc.only.within = F,
-                min.junc.cov.f = 1,
-                sub='After birth'
+                min.junc.cov.f = 0.05,
+                sub='Before birth',
+                main=paste(tissue,gene, jxn)
                 )
+    plotReadCov(adult.covs.summed.gene,
+                junc.col = fetus.covs.summed.gene$cols,
+                xlim=gene.region.coords,
+                plot.junc.only.within = F,
+                min.junc.cov.f = 0.05,
+                sub='After birth',
+                main=paste('dPSI.sajr=',round(sign.jxn.tissue$dPSI, digits=2), 
+                           'FDR.sajr=', round(sign.jxn.tissue$dPSI, digits=2),
+                           'logFC.dje=', round(sign.jxn.tissue$logFC, digits=2),
+                           'FDR.dje=', round(sign.jxn.tissue$FDR, digits=2),
+                          'sign.diego=', sign.jxn.tissue$significant
+                ))
   }
 }

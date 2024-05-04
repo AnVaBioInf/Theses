@@ -79,29 +79,18 @@ filter.data = function(condition.cov.list, xlim, min.junc.cov,plot.junc.only.wit
     #print(condition.cov.list)
     # choosing only x inside the range of interest
     print(xlim)
-    x.in.range.tf = condition.cov.list$x >= xlim[1] &
-                    condition.cov.list$x <= xlim[2]
+    x.in.range.tf = condition.cov.list$x >= xlim[1]-500 &
+                    condition.cov.list$x <= xlim[2]+500
     #??? x is from 1 to what?
     
     condition.cov.list$x = condition.cov.list$x[x.in.range.tf]
     condition.cov.list$cov = condition.cov.list$cov[x.in.range.tf]
     
-    # plot only junction aches in the range?
-    if(!is.na(plot.junc.only.within)){
-      if(plot.junc.only.within){
-        condition.cov.list$juncs =
-          condition.cov.list$juncs[condition.cov.list$juncs$start > xlim[1] &
-                                   condition.cov.list$juncs$end < xlim[2] &
-                                  condition.cov.list$juncs$counts > min.junc.cov.f,]
-      }else{
-        condition.cov.list$juncs =
-          condition.cov.list$juncs[((condition.cov.list$juncs$start >= xlim[1] &
-                                    condition.cov.list$juncs$start < xlim[2]) |
-                                   (condition.cov.list$juncs$end > xlim[1] &
-                                    condition.cov.list$juncs$end <= xlim[2])) &
-                                     condition.cov.list$juncs$counts > min.junc.cov.f,]
-      }
-    }
+    condition.cov.list$juncs =
+      condition.cov.list$juncs[(condition.cov.list$juncs$start == xlim[1] |
+                               condition.cov.list$juncs$end == xlim[2]) &
+                               condition.cov.list$juncs$counts > min.junc.cov.f,]
+    
     condition.cov.list$cov[c(1,length(condition.cov.list$cov))] = 0 # assigning cov 0 to first and last elements of cov
     condition.cov.list
   }
@@ -125,7 +114,7 @@ plotReadCov = function(condition.cov.list,
   plot(condition.cov.list$x,
        condition.cov.list$cov,
        t='n',
-       xlim=xlim,
+       xlim=c(xlim[1]-500, xlim[2]+500),
        ...)
 
   # plot verticale lines
@@ -139,7 +128,8 @@ plotReadCov = function(condition.cov.list,
         print(c('i', i,
         condition.cov.list$juncs$start[i],
         condition.cov.list$juncs$end[i],
-        condition.cov.list$juncs$cols[i]))
+        condition.cov.list$juncs$cols[i]
+       ))
       
       plotArc(condition.cov.list$juncs$start[i],
               condition.cov.list$juncs$end[i],
@@ -160,6 +150,7 @@ plotReadCov = function(condition.cov.list,
 plotArc = function(from,to,top,n=100,y.base=0,...){
   len = to - from
   x = seq(from=0,to=len,length.out = n)
-  y = x*4*top/len - x^2*(4*top/len^2)
+  y = x*4*top/len - x^2*(4*top/len^2) 
+  # This equation represents a downward-facing parabola that starts at 0, reaches its peak at top, and ends at 0 again.
   lines(x+from,y+y.base,...)
 }
