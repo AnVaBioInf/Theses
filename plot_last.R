@@ -1,4 +1,4 @@
-#source('ages_comparison.R')
+#source('ages_comp_trying2.0.R')
 #install.packages("RColorBrewer")
 #dev.off()
 library(RColorBrewer)
@@ -16,10 +16,37 @@ library(RColorBrewer)
 # сделать таблицу значимых во всех методах
 # сделать реверсед таблицу
 
-# Install and load the package
-# Install and load the package
-#install.packages("eulerr")
-library(eulerr)
+prepareDataBarplot = function(all.common.jxns, sign.all.tools, 
+                              sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                              sajr.only.sign, dje.only.sign, diego.only.sign){
+  data.frame(
+    software = c("DJexpress", "SAJR", "DIEGO"),
+    
+    # -- common junctions
+    # junctions, significant in both tools (green)
+    sign.in.all.tools = c(nrow(sign.all.tools), 
+                           nrow(sign.all.tools),
+                           nrow(sign.all.tools)),
+    
+    # significant junctions only in one method from common junctions (red)
+    sign.in.sajr.dje = c(nrow(sajr.dje.sign), 
+                         nrow(sajr.dje.sign),
+                           0),    
+    
+    sign.in.sajr.diego = c(0, 
+                           nrow(sajr.diego.sign),
+                           nrow(sajr.diego.sign)),  
+    
+    sign.in.dje.diego = c(nrow(dje.diego.sign), 
+                           0,
+                           nrow(dje.diego.sign)),    
+    
+    
+    dje.sajr.only.sign=  c(nrow(dje.only.sign),
+                           nrow(sajr.only.sign),
+                           nrow(diego.only.sign)) # all signifficant in dje in common, minus sign in both tools
+  )
+}
 
 setPlotParameters <- function() {
   #Units: Margins are specified in lines of text, which can vary depending on the font size and graphical device.
@@ -56,67 +83,54 @@ setPlotParameters <- function() {
   
 }
 
-makeViennDiagram = function(tissue,
-                       sign.all.tools, 
-                       sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-                       sajr.only.sign, dje.only.sign, diego.only.sign){
+makeBarplot = function(tissue,df){
+  # Create the vector of colors for each quarter
+  data = t(as.matrix(df[, -1]))
   
-  # Example data (adjust according to your needs)
-  fit <- euler(c("DJE" = nrow(dje.only.sign), "SAJR" = nrow(sajr.only.sign), "DIEGO" = nrow(diego.only.sign), 
-                 "DJE&SAJR" = nrow(sajr.dje.sign), "DJE&DIEGO" =  nrow(dje.diego.sign), "SAJR&DIEGO" = nrow(sajr.diego.sign), 
-                 "DJE&SAJR&DIEGO" = nrow(sign.all.tools)))
-  # Plot the diagram
-  plot(fit)
-  mtext(tissue, side = 2, line = 3, las = 0)  
+  print(cbind(data[,1], c(0,0), c(0,0)))
   
-}
+  bp = barplot(
+    cbind(data[,1], c(0,0), c(0,0)), 
+    # main = pair.name,
+    ylab = "# jxns",
+    col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628","#984EA3"),
+    beside = F,
+    ylim = c(0, 250),
+             # max(sapply(output, 
+             #            function(tissue) {
+             #              sapply(
+             #                tissue[c('sajr.only.significant.events', 
+             #                              'dje.only.significant.events')], 
+             #                     nrow
+             #                )}
+             #              ))),
+             # 
+    legend = FALSE  # Disable the legend creation within each subplot
+  )
   
-  # 
-  # 
-  # # Create the vector of colors for each quarter
-  # data = t(as.matrix(df[, -1]))
-  # 
-  # print(cbind(data[,1], c(0,0), c(0,0)))
-  # 
-  # bp = barplot(
-  #   cbind(data[,1], c(0,0), c(0,0)), 
-  #   # main = pair.name,
-  #   ylab = "# jxns",
-  #   col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628","#984EA3"),
-  #   beside = F,
-  #   ylim = c(0, 350),
-  #            # max(sapply(output, 
-  #            #            function(tissue) {
-  #            #              sapply(
-  #            #                tissue[c('sajr.only.significant.events', 
-  #            #                              'dje.only.significant.events')], 
-  #            #                     nrow
-  #            #                )}
-  #            #              ))),
-  #            # 
-  #   legend = FALSE  # Disable the legend creation within each subplot
-  # )
-  # 
-  # barplot(
-  #   cbind(c(0,0), data[,2], c(0,0)), 
-  #   # main = pair.name,
-  #   col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628", "#FF7F00"),
-  #   beside = F,
-  #   add=TRUE,
-  # )
-  # 
-  # barplot(
-  #   cbind(c(0,0), c(0,0), data[,3]), 
-  #   # main = pair.name,
-  #   col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628",'#FFFF33' ),
-  #   beside = F,
-  #   add=TRUE,
-  # )
-  # 
-  # if (par("mfg")[1]==6){
-  #   axis(1, at = bp, labels = df$software, cex=0.8,las=3)
-  # }
+  barplot(
+    cbind(c(0,0), data[,2], c(0,0)), 
+    # main = pair.name,
+    col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628", "#FF7F00"),
+    beside = F,
+    add=TRUE,
+  )
+  
+  barplot(
+    cbind(c(0,0), c(0,0), data[,3]), 
+    # main = pair.name,
+    col = c("#4DAF4A", "#377EB8", '#F781BF', "#A65628",'#FFFF33' ),
+    beside = F,
+    add=TRUE,
+  )
+  
+  if (par("mfg")[1]==6){
+    axis(1, at = bp, labels = df$software, cex=0.8,las=3)
+  }
   # assigns tissue name for each row of graphs
+  mtext(tissue, side = 2, line = 3, las = 0)  
+}
+
 
 plot_graphs = function(all.common.jxns, sign.all.tools, 
                        sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
@@ -268,36 +282,37 @@ Map(function(output.tissue, tissue) {
     dje.only.sign = output.tissue$dje.only.significant.events
     diego.only.sign = output.tissue$diego.only.significant.events
     sign.all.tools = output.tissue$sign.all.tools
-  
-    makeViennDiagram(tissue,
-                sign.all.tools, 
-                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-                sajr.only.sign, dje.only.sign, diego.only.sign)
     
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'dPSI', 'logFC')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'dPSI', 'abundance_change')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'logFC', 'abundance_change')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'p.value.sajr', 'P.Value')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'p.value.sajr', 'p_val')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
-    # plot_graphs(all.common.jxns, sign.all.tools, 
-    #             sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
-    #             sajr.only.sign, dje.only.sign, diego.only.sign, 'P.Value', 'p_val')   #, xlim==c(-1,1), ylim=c(-4,4))
-    # 
+    print('here')
+    print(max(all.common.jxns$abundance_change, na.rm = TRUE))
+    print('end')
+  
+    df = prepareDataBarplot(all.common.jxns, sign.all.tools, 
+                            sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                            sajr.only.sign, dje.only.sign, diego.only.sign)
+    #print(all.common.jxns)
+    
+    print(df)
+    makeBarplot(tissue,df)
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'dPSI', 'logFC')   #, xlim==c(-1,1), ylim=c(-4,4))
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'dPSI', 'abundance_change')   #, xlim==c(-1,1), ylim=c(-4,4))
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'logFC', 'abundance_change')   #, xlim==c(-1,1), ylim=c(-4,4))
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'p.value.sajr', 'P.Value')   #, xlim==c(-1,1), ylim=c(-4,4))
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'p.value.sajr', 'p_val')   #, xlim==c(-1,1), ylim=c(-4,4))
+    plot_graphs(all.common.jxns, sign.all.tools, 
+                sajr.dje.sign, sajr.diego.sign, dje.diego.sign,
+                sajr.only.sign, dje.only.sign, diego.only.sign, 'P.Value', 'p_val')   #, xlim==c(-1,1), ylim=c(-4,4))
+
 
     
   },
