@@ -46,7 +46,6 @@ getRecountCov = function(sample.id, rse.gene.tissue, gene.grange){
 sumCovs = function(gene.cov.samples.list){
   # launched for each of the conditions (2ce)
   # launched for every tissue where significant junction was found
-  
   # creating a template of merged object
   cov.merged = gene.cov.samples.list[[1]] # read coverages for the first sample
   
@@ -76,6 +75,7 @@ sumCovs = function(gene.cov.samples.list){
 #' @export
 
 filter.data = function(condition.cov.list, xlim, min.junc.cov,plot.junc.only.within, min.junc.cov.f){
+    print(min.junc.cov.f)
     #print(condition.cov.list)
     # choosing only x inside the range of interest
     print(xlim)
@@ -86,32 +86,23 @@ filter.data = function(condition.cov.list, xlim, min.junc.cov,plot.junc.only.wit
     condition.cov.list$x = condition.cov.list$x[x.in.range.tf]
     condition.cov.list$cov = condition.cov.list$cov[x.in.range.tf]
     
-    # selecting only junctions that are inside region of interest with min coverage
-    condition.cov.list$juncs =
-      condition.cov.list$juncs[condition.cov.list$juncs$start <= xlim[2] &
-                                 condition.cov.list$juncs$end >= xlim[1] &
-                                 condition.cov.list$juncs$counts >= min.junc.cov,]
-    
     # plot only junction aches in the range?
     if(!is.na(plot.junc.only.within)){
       if(plot.junc.only.within){
         condition.cov.list$juncs =
           condition.cov.list$juncs[condition.cov.list$juncs$start > xlim[1] &
-                                     condition.cov.list$juncs$end < xlim[2],]
+                                   condition.cov.list$juncs$end < xlim[2] &
+                                  condition.cov.list$juncs$counts > min.junc.cov.f,]
       }else{
         condition.cov.list$juncs =
-          condition.cov.list$juncs[(condition.cov.list$juncs$start > xlim[1] &
+          condition.cov.list$juncs[((condition.cov.list$juncs$start >= xlim[1] &
                                     condition.cov.list$juncs$start < xlim[2]) |
                                    (condition.cov.list$juncs$end > xlim[1] &
-                                    condition.cov.list$juncs$end < xlim[2]), ]
+                                    condition.cov.list$juncs$end <= xlim[2])) &
+                                     condition.cov.list$juncs$counts > min.junc.cov.f,]
       }
     }
-    start = condition.cov.list$x[1]
-    end = condition.cov.list$x[length(condition.cov.list$x)]
-    
-    condition.cov.list$cov[c(1,length(condition.cov.list$cov))] = 0 # почему???
-    condition.cov.list$juncs =
-      condition.cov.list$juncs[condition.cov.list$juncs$counts >= min.junc.cov.f,] # * ylim[2],]
+    condition.cov.list$cov[c(1,length(condition.cov.list$cov))] = 0 # assigning cov 0 to first and last elements of cov
     condition.cov.list
   }
 
@@ -122,11 +113,13 @@ plotReadCov = function(condition.cov.list,
                        plot.junc.only.within=FALSE,
                        xlim,
                        reverse=FALSE,
-                       junc.col='blue',
+                   #    junc.col='blue',
                        junc.lwd=3,
                        bottom.mar=0,...){
   
   condition.cov.list = filter.data(condition.cov.list, xlim, min.junc.cov,plot.junc.only.within, min.junc.cov.f)
+  print('filtered')
+  print(condition.cov.list$juncs)
   
   # create a graph
   plot(condition.cov.list$x,
@@ -141,13 +134,20 @@ plotReadCov = function(condition.cov.list,
           col = 'gray',
           border=NA)
   
-  if(nrow(condition.cov.list$juncs)>0) 
-    for(i in 1:nrow(condition.cov.list$juncs))
+  if(nrow(condition.cov.list$juncs)>0) {
+    for(i in 1:nrow(condition.cov.list$juncs)){
+        print(c('i', i,
+        condition.cov.list$juncs$start[i],
+        condition.cov.list$juncs$end[i],
+        condition.cov.list$juncs$cols[i]))
+      
       plotArc(condition.cov.list$juncs$start[i],
               condition.cov.list$juncs$end[i],
               condition.cov.list$juncs$counts[i],
-              col=junc.col,
+              col=condition.cov.list$juncs$cols[i],
               lwd=junc.lwd)
+    }
+  }
 }
 
 #' Plots parabolic arc
