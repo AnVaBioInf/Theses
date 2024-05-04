@@ -1,6 +1,6 @@
-#source('ages_comparison.R')
+source('ages_comparison.R')
 
-
+# cancer significant events found by SAJR
 cancer.sign.jxns = c('chr13:26671990-26681053',
                      'chr12:110436205-110437083',
                      'chr7:152801732-152814549',
@@ -10,84 +10,38 @@ cancer.sign.jxns = c('chr13:26671990-26681053',
                      'chr10:26770346-26777064',
                      'chr15:22914883-22917787')
 
-'chr13:26671990-26681053' %in% cancer.sign.jxns
+# signigicant events in tissue and development
 
-#output
-for (tissue in unique.tissues){
+sign.jxns.info.dev.and.cancer = list()
+for (tissue in names(output)){
+  output.tissue = output[[tissue]]
   print(tissue)
-  sign.all = na.omit(output[[tissue]]$sign.all.tools)
-  #print(sign.all)
-  all = sign.all[sign.all$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(all)>0){
-    print('all')
-    print(all)
-  }
-  
-  print("")
-  sign.sajr.dje = na.omit(output[[tissue]]$sajr.dje.significant.events)
-  sajr.dje = sign.sajr.dje[sign.sajr.dje$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(sajr.dje)>0){
-    print('sajr.dje')
-    print(sajr.dje)
-  }
-  
-  print("")
-  sign.dje.diego = na.omit(output[[tissue]]$dje.diego.significant.events)
-  dje.diego = sign.dje.diego[sign.dje.diego$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(dje.diego)>0){
-    print('dje.diego')
-    print(dje.diego)
-  }
-  
-  print("")
-  sign.sajr = na.omit(output[[tissue]]$sajr.only.significant.events)
-  sajr = sign.sajr[sign.sajr$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(sajr)>0){
-    print('sajr.only')
-    print(sajr)
-  }
-  
-  print("")
-  sign.dje = na.omit(output[[tissue]]$dje.only.significant.events)
-  dje = sign.dje[sign.dje$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(dje)>0){
-    print('dje.only')
-    print(dje)
-  }
-  
-  print("")
-  sign.diego = na.omit(output[[tissue]]$diego.only)
-  diego = sign.diego[sign.diego$unifiedJxnID %in% cancer.sign.jxns,]
-  if (nrow(diego)>0){
-    print('diego.only')
-    print(diego)
+  for (tools.found in names(output.tissue)){
+    print(tools.found)
+    output.tissues.sign = output.tissue[[tools.found]]
+    sign = output.tissues.sign[output.tissues.sign$unifiedJxnID %in% cancer.sign.jxns,]
+    if (nrow(sign)==0){
+      next
+    }
+    if (tools.found == 'all.common.jxns'){
+      print(table(cancer.sign.jxns %in% unique(output.tissues.sign$unifiedJxnID) ))
+      print(cancer.sign.jxns[!(cancer.sign.jxns %in% unique(output.tissues.sign$unifiedJxnID))])
+      next
+    }
+    sign$tissue = tissue
+    sign$tools_found = tools.found
+
+    sign <- sign[order(abs(sign$dPSI), decreasing = TRUE), ]
+    sign <- sign[!duplicated(sign$unifiedJxnID), ]
+
+    
+    sign.jxns.info.dev.and.cancer[[paste0(tissue, ".", tools.found)]] = sign
   }
 }
+sign.jxns.info.dev.and.cancer = do.call(rbind, sign.jxns.info.dev.and.cancer)
+sign.jxns.info.dev.and.cancer = 
+  sign.jxns.info.dev.and.cancer[order(sign.jxns.info.dev.and.cancer$GeneID, 
+                                      sign.jxns.info.dev.and.cancer$unifiedJxnID,
+                                      sign.jxns.info.dev.and.cancer$tissue), ]
 
-
-sign.tissue = lapply(output, function(tissue) print(na.omit(tissue$sign.all.tools)))
-sign.tissue
-
-sign.tissue.filt <- Filter(function(df) nrow(df) > 0, sign.tissue)
-
-# 1. Add key column to each dataframe
-s <- lapply(names(sign.tissue.filt), function(tissue) {
-  df <- sign.tissue.filt[[tissue]]
-  df$tissue <- tissue
-  return(df)
-})
-
-s
-
-# 2. Merge dataframes using full join
-merged_df <- Reduce(function(x, y) merge(x, y, all = TRUE), s)
-
-
-# 3. (Optional) Move the key column to the first position
-merged_df <- merged_df[, c("GeneID", setdiff(names(merged_df), "GeneID"))]
-
-df = merged_df[,c('GeneID', 'unifiedJxnID', 'dPSI', 'FDR.sajr', 'logFC', 'FDR', 'abundance_change', 'p_val', 'tissue')]
-
-df[order(-df$dPSI, -df$logFC), ] # Sort descending
-
-write.csv(df, file = "my_data.csv", row.names = FALSE)
+#write.csv(sign.dev.and.cancer, file = "my_data.csv", row.names = FALSE)
