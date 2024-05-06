@@ -70,7 +70,7 @@ setAxis = function(){
   
 }
 
-plotGeneExpression = function(){
+plotScatterplotExpression = function(){
   par(mfrow = c(5, 5),
       oma = c(3, 2, 1, 1),  # bottom, left, top, right.
       mar = c(1, 1, 1, 1),  # bottom, left, top, right.
@@ -131,7 +131,7 @@ plotBarplotExpression = function(gene.rse, tissue.col...){
   numb.empty = numb.graphs**2 - length(gene.rse@rowRanges)
   par(mfrow = c(numb.graphs, numb.graphs),
       oma = c(4, 3, 1, 1),  # bottom, left, top, right.
-      mar = c(1, 1, 1, 1),  # bottom, left, top, right.
+      mar = c(1, 2, 1, 1),  # bottom, left, top, right.
       cex.axis = 0.8)  # Adjust the value as needed
   
   cpm = as.data.frame(t(gene.rse@assays@data$cpm))
@@ -146,12 +146,14 @@ plotBarplotExpression = function(gene.rse, tissue.col...){
   # Create boxplot
   for (gene.name in names(gene.ids.ordered)){
     gene.id = gene.ids.ordered[gene.name]
+    par(bty="l")
     boxplot(cpm[[gene.id]] ~ tissue, data = cpm,
             xlab = "Tissue", ylab = "CPM",
             ylim = findYlim(rse.gene.cytosk),
             xaxt = "n", yaxt = "n", 
-            main = gene.name, 
             col=tissue.col)
+    title(main = gene.name, line = 0.2, cex=0.8)  # Place title 3 lines above the plot
+    
     axis(1, at = 1:length(tissues), labels = FALSE)  # x-axis ticks
     axis(2, labels = FALSE)  # y-axis ticks
     
@@ -170,7 +172,6 @@ plotBarplotExpression = function(gene.rse, tissue.col...){
     grid(nx = NULL, ny = NULL)
   }
 }
-
 
 # --- plotting
 tissue.col=c(Brain="#3399CC",
