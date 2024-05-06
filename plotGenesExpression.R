@@ -1,261 +1,175 @@
-library("recount3")
-library("dbplyr")
-library("dplyr")
-library("tidyr")
-library("readr")
-library('tibble')
-library("gtools")
-library('gridExtra')
-library("tidyr")
-library("ggplot2")
-
-
-#----------------downloading dataset-----------------------------
-human_projects <- recount3::available_projects()
-
-proj_info <- subset(
-  human_projects,
-  project == "ERP109002" & project_type == "data_sources"
-)
-
-# access the gene level expression data
-# create RSE object 
-rse_genes_ERP109002 <- create_rse(proj_info)
-
-#-------------------------sample metadata-----------------------------
-# from sample metadata extracting sra.library_name, containing information on tissue, age etc
-samples_meta_orig = colData(rse_genes_ERP109002)['sra.library_name'] 
-head(samples_meta_orig)
-# ERR2598051 5664sTS.Human.Forebr..
-
-# --- data cleaning
-# separating data to different columns
-samples_meta_orig = as.data.frame(samples_meta_orig) %>%
-  separate(sra.library_name, c("sample_id", "organism", "tissue", "age", "gender"), "\\.")   # \\. - delimiter dot
-head(samples_meta_orig)
-# ERR2598051   5664sTS    Human Forebrain 10w Female_s
-
-# combining some tissues
-samples_meta = as.data.frame(samples_meta_orig)
-samples_meta$tissue = replace(samples_meta$tissue, samples_meta$tissue == 'Forebrain', "Brain")
-samples_meta$tissue = replace(samples_meta$tissue, samples_meta$tissue == 'Hindbrain', "Cerebellum")
-samples_meta$tissue = replace(samples_meta$tissue, samples_meta$tissue == 'KidneyTestis', 'Kidney')
-samples_meta$tissue %>% unique()
-# [1] "Brain"      "Heart"      "Cerebellum" "Kidney"     "Liver"      "Ovary"      "Testis"    
-
-# CS - Carnegie Stage to weeks
-cs_to_days = c('CS13' = '32',
-               'CS14' = '33',
-               'CS15' = '36',
-               'CS16' = '39',
-               'CS17' = '41',
-               'CS18' = '44',
-               'CS19' = '46',
-               'CS20' = '49',
-               'CS21' = '51',
-               'CS22' = '53',
-               'CS23' = '56') # dpc
-# transferring it to weeks
-cs_to_w = as.numeric(cs_to_days)/4
-cs_to_w = paste(cs_to_w, "w", sep="") # adding w, that's how all values are stored in age column age+measure
-names(cs_to_w) = names(cs_to_days) # asigning CS stages in correspondance to each week
-cs_to_w
-# CS13     CS14     CS15     CS16     CS17     CS18     CS19     CS20     CS21     CS22     CS23 
-# "8w"  "8.25w"     "9w"  "9.75w" "10.25w"    "11w"  "11.5w" "12.25w" "12.75w" "13.25w"    "14w" 
-
-
-# replacing CS with wpc
-cs_idx = which(samples_meta$age %in% names(cs_to_w)) # index of cs values to replace
-cs_values = samples_meta$age[cs_idx] # selecting all cs values
-samples_meta$age = replace(samples_meta$age, cs_idx, cs_to_w[cs_values]) #  
-samples_meta$age[cs_idx]
-#  [1] "8 wpc"     "8.25 wpc"  "8 wpc"     "8 wpc"     "8 wpc"     "9.75 wpc"  "9.75 wpc"  "9.75 wpc"  "11 wpc"    "10.25 wpc"
-# ...
-
-# separating age and measure into two columns
-# replace w (weeks) with wpc (weeks post conseption)
-samples_meta$age = gsub('w$', ' wpc', samples_meta$age)
-samples_meta$age %>% unique()
-#  [1] "10 wpc"    "11 wpc"    "12 wpc"    "13 wpc"    "16 wpc"    "18 wpc"    "19 wpc"    "20 wpc"    "8 wpc"     "4 wpc"    
-# ...
-
-# -- splitting data into age groups
-ages = samples_meta$age %>% unique()
-ages
-#  [1] "10 wpc"    "11 wpc"    "12 wpc"    "13 wpc"    "16 wpc"    "18 wpc"    "19 wpc"    "20 wpc"    "8 wpc"     "4 wpc"    
-# ...
-
-# order of columns (age)
-ages_order = c()
-for (i in c('dpc', 'wpc', 'dpb', 'mpb', 'ypb')){
-  ages_order = c(ages_order, mixedsort(ages[endsWith(ages, i)])) # mixedsort function sorts values that are a mixture of numb and str
-} # appending to vector
-ages_order # in the next step age groups are formed manualy, using the output of this function
-#  [1] "4 wpc"     "5 wpc"     "6 wpc"     "7 wpc"     "8 wpc"     "8.25 wpc"  "9 wpc"     "9.75 wpc"  "10 wpc"    "10.25 wpc"
-# ...
-
-# merging age groups
-infant = c("0dpb","4dpb","6dpb","15dpb" ,"18dpb","19dpb" ,"34dpb","94dpb" ,"127dpb","221dpb","226dpb","270dpb","271dpb","6mpb","1ypb")
-toddler = c('2ypb', '4ypb')
-school = c("7ypb","8ypb"   )
-teen = c("13ypb","14ypb","16ypb","17ypb" )
-yo_25_35 = c("25ypb","28ypb","29ypb","32ypb" )
-yo_36_45 = c("39ypb" )
-yo_46_55 = c( "46ypb", "50ypb", "53ypb" , "54ypb", "55ypb")
-yo_56_65 = c("58ypb")
-all_age_gr = c(infant, toddler, school, teen, yo_25_35, yo_36_45, yo_46_55, yo_56_65)
-
-samples_meta$age[samples_meta$age %in% infant] = "infant"
-samples_meta$age[samples_meta$age %in% toddler] = "toddler"
-samples_meta$age[samples_meta$age %in% school] = "school"
-samples_meta$age[samples_meta$age %in% teen] = "teen"
-samples_meta$age[samples_meta$age %in% yo_25_35] = "25-35 years"
-samples_meta$age[samples_meta$age %in% yo_36_45] = "36-45 years"
-samples_meta$age[samples_meta$age %in% yo_46_55] = "46-55 years"
-samples_meta$age[samples_meta$age %in% yo_56_65] = "56-65 years"
-head(samples_meta)
-# ERR2598051   5664sTS    Human      Brain    10 wpc Female_s
-# ...
-
-order = c(ages_order[endsWith(ages_order, "wpc")], 
-          c("infant", "toddler", "school", "teen", "25-35 years", "36-45 years", "46-55 years", "56-65 years")
-          ) # setting new order
-order
-
-# checking the introduced changes
-dim(samples_meta_orig)
-dim(samples_meta)
-head(samples_meta_orig)
-head(samples_meta)
+source("rseAnnotationPreprocessing.R")
 
 # -----------------------------------------------------------------------------------
 # ------------------------- samples occurrence heatmap ------------------------------
 # -----------------------------------------------------------------------------------
+par(mar = c(5, 6, 1, 1))  # bottom, left, top, right.
+
+order = c("4wpc", "5wpc", "6wpc", "7wpc", "8wpc", "9wpc",  "10wpc", "11wpc", "12wpc", "13wpc",
+          "14wpc", "16wpc", "18wpc", "19wpc", "20wpc", "newborn", "infant", "toddler", "school", 
+          "teen", "25-35 y.o.", "36-45 y.o.", "46-45 y.o.", "56-55 y.o.") # setting new order
+order = setNames(1:length(order), order)
+
 # occurrence of samples
-sample_occurance = table(samples_meta$tissue, samples_meta$age) %>% as.data.frame.matrix() # as.data.frame
-# making a column for tissues
-sample_occurance$tissue = rownames(sample_occurance)
-sample_occurance
+sample_occurance = as.data.frame.matrix(
+  table(rse.gene.cytosk@colData$tissue, rse.gene.cytosk@colData$age_group_specific) )
+# The table() function takes these two vectors as input and creates a contingency table. This table shows the frequency distribution of cells across different combinations of tissue types and age groups.
+sample_occurance = sample_occurance[,names(order)]
+sample_occurance = t(sample_occurance)
+# # making a column for tissues
+# sample_occurance$tissue = rownames(sample_occurance)
+# sample_occurance
 
-# reshaping the df to plot heatmap
-sample_occurance_long <- pivot_longer(
-                            data = sample_occurance, 
-                            cols = -length(colnames(sample_occurance)), # all, aside from the last one (tissue)
-                            names_to = "age_group", 
-                            values_to = "sampl_numb") # increases the number or rows and decreases the number of columns
-sample_occurance_long
+# Set color palette (e.g., blue to red)
+colors <- colorRampPalette(c("white", "red"))(256)
 
-sample_occurance_heatmap <- ggplot(data = sample_occurance_long, mapping = aes(x = tissue,
-                                                       y = age_group,
-                                                       fill = sampl_numb)) + # fill - tile color depending on # of samples
-  geom_tile() + # makes a 'tile' for each tissue+age
-  scale_fill_gradient(low = "#FFFFFF",
-                      high = "#FF2400") + # setting color palette
-  geom_text(aes(label = sampl_numb)) + # labels tiles with numbers
-  scale_y_discrete(limits = order) + # setting order of y values
-  labs(title = 'age~tissue, number of samples',
-       x = 'Tissue',
-       y = 'Age',
-       fill='# of samples')
-sample_occurance_heatmap
+# Create the heatmap
+image(1:ncol(sample_occurance), 1:nrow(sample_occurance), 
+      t(sample_occurance), col = colors, axes = FALSE, xlab = "", ylab = "")
+# Add text labels with data values
+
+text(x = col(sample_occurance), 
+     y = row(sample_occurance), 
+     labels = sample_occurance, 
+     col = "black")
+
+# Add axes and labels
+axis(1, at = 1:ncol(sample_occurance), labels = colnames(sample_occurance), las = 2)
+axis(2, at = 1:nrow(sample_occurance), labels = rownames(sample_occurance), las = 2)
 
 # ----------------------------------------------------------------------------------
 # ------------------------ gene expression vs time graphs -------------------------
 # ----------------------------------------------------------------------------------
-# expressions
-quant = assays(rse_genes_ERP109002)[[1]] %>%
-  as.matrix() %>%
-  as.data.frame()
-head(quant)
 
-# normalisation (CPM)
-# raw reads mapped to the transcript / sum counts per sample *10**6
-quant_cpm = sweep(x = quant, MARGIN = 2, STATS = colSums(quant), FUN = `/`)*10**6
-# MARGIN = 1 means row; MARGIN = 2 means column.
-# STATS - the value(s) that should be added or subtracted
-# FUN The operation that has to be done
-head(quant_cpm)
+findYlim = function(rse.gene.cytosk){
+  cpm = as.data.frame(t(rse.gene.cytosk@assays@data$cpm))
+  cpm$tissue = rse.gene.cytosk@colData$tissue
+  
+  a =by(cpm[, sapply(cpm, is.numeric)], cpm$tissue, 
+        function(x) as.data.frame(
+          apply(x, 2, quantile, probs = c(0.25, 0.75)), simplify = FALSE))
+  a = do.call(cbind, a)
+  max.up.quantile = max.col(a)[2]
+  cpm.max.quantiles = a[,max.up.quantile]
+  ylim.max = cpm.max.quantiles[2]+1.5*(cpm.max.quantiles[2]-cpm.max.quantiles[1])
+  c(0,ylim.max)
+}
 
-# --- data preparation
-# - gene annotation
-# citoskeleton genes
-genes = rbind(data.frame(names=c('CYFIP1','CYFIP2','NCKAP1','NCKAP1L','ABI1','ABI2','ABI3','WASF1','WASF2','WASF3','BRK1'),group='WAVE'),
-              data.frame(names=c('NHS','NHSL1','NHSL2','KIAA1522'),group='NHS'),
-              data.frame(names=c('ARPC1A','ARPC1B','ARPC2','ARPC3','ARPC4','ARPC5','ACTR2','ACTR3','ACTR3B'),group='Arp2/3'))
-genes
+fitCurve = function(){
+  # Fit a curve (example using loess)
+  model = loess(gene.tissue.counts[[gene.id]] ~ as.numeric(age.group.specific))
+  # Generate x-values for prediction
+  x_pred = seq(min(age.group.specific), max(age.group.specific), length.out = 100)
+  # Predict y-values using the model
+  y_pred = predict(model, newdata = data.frame(age.group.specific = x_pred))
+  # Add the curve to the plot
+  lines(x_pred, y_pred, col = col, lwd = 2)  # Adjust lwd for line thickness
+}
 
-# annotation for citoskeleton genes
-rse_genes_ERP109002@rowRanges
-#          ENSG00000278704.1 GL000009.2       56140-58376      - |  ENSEMBL     gene      2237      <NA>
+setAxis = function(){
+  
+}
 
-annotation_citosk_genes = 
-  rse_genes_ERP109002@rowRanges[rse_genes_ERP109002@rowRanges$gene_name %in% genes$names,] %>%
-  as.data.frame() # from gene annotation leaving only citoskeleton genes
-annotation_citosk_genes$gene_name %>% unique()
-#  [1] "CYFIP1"   "WASF2"    "KIAA1522" "ARPC5"    "ABI1"     "NCKAP1L"  "ARPC3"    "WASF3"    "ABI3"    
-# ...
+plotGeneExpression = function(){
+  par(mfrow = c(5, 5),
+      oma = c(3, 2, 1, 1),  # bottom, left, top, right.
+      mar = c(1, 1, 1, 1),  # bottom, left, top, right.
+      cex.axis = 0.8)  # Adjust the value as needed
+  
+  genes.id = rse.gene.cytosk@rowRanges[order(rse.gene.cytosk@rowRanges$gene_name),]$gene_id
+  tissues = unique(rse.gene.cytosk@colData$tissue)
+  
+  
+  for (gene.id in genes.id){
+    # Create a new plot for each gene
+    plot(
+      0, 0,  # Placeholder values, will be replaced by actual data
+      xlim = c(1, length(order)),  # Set x-axis limits based on number of tissues
+      ylim = c(min(rse.gene.cytosk@assays@data$cpm), 600),  # Set y-axis limits based on gene expression
+      type = "n",  # Start with an empty plot
+      xaxt = "n",  # Suppress default x-axis
+      yaxt = "n",  # Suppress default x-axis
+      #xlab = "age",
+      #ylab = "CPM",
+      main = rse.gene.cytosk@rowRanges[rse.gene.cytosk@rowRanges$gene_id==gene.id,]$gene_name  # Set title to gene name
+    )
+    
+    graph.coord = par("mfg")
+    # Add y-axis only for rightmost plots
+    if (graph.coord[2] == 1) {
+      axis(2, las = 1)  # Add y-axis on the right
+    }
+    
+    # Add x-axis only for bottom plots
+    if (graph.coord[1] == 5) {
+      axis(1,at = 1:length(order), labels = names(order), las=2)  # Add x-axis at the bottom
+    }
+    grid(nx = NULL, ny = NULL)
+    
+    for (tissue in tissues){
+      samples = rownames(rse.gene.cytosk@colData[rse.gene.cytosk@colData$tissue==tissue,])
+      col = tissue.col[tissue]
+      age.group.specific = 
+        rse.gene.cytosk@colData[rse.gene.cytosk@colData$tissue==tissue,]$age_group_specific
+      age.group.specific = order[age.group.specific]
+      
+      gene.tissue.counts = as.data.frame(t(rse.gene.cytosk@assays@data$cpm[gene.id,samples,drop=F]))
+      gene.tissue.counts$age.group.specific = age.group.specific
+      points(age.group.specific, gene.tissue.counts[[gene.id]], col=col)
+      
+    }
+  }
+}
 
-# adding information about group = molecular complex
-# matching genes and extracting their groups
-annotation_citosk_genes$group = genes$group[match(annotation_citosk_genes$gene_name,genes$names)]
-annotation_citosk_genes$group
-# it matches first vector with second, order-1st, ids-2nd
-
-annotation_citosk_genes$gene_name
-genes$names
-
-genes[match(annotation_citosk_genes$gene_name,genes$names),]
-
-setdiff(genes$names, annotation_citosk_genes$gene_name) # checking if all genes were selected
-# character(0)
-dim(genes)
-# [1] 24  2  
-# 24 genes, 2 columns
-dim(annotation_citosk_genes)
-# [1] 25 15
-# 1 gene more!
-sort(table(annotation_citosk_genes$gene_name))
-annotation_citosk_genes[annotation_citosk_genes$gene_name=='CYFIP1',]
-# one of the genes belongs to scaffolds
-
-# filtering out scaffolds from annotation
-annotation_citosk_genes[!startsWith(as.character(annotation_citosk_genes$seqnames),'chr'),] #  scaffolds
-# ENSG00000280618.2 protein_coding    CYFIP1     2 OTTHUMG00000189940.2 <NA>  WAVE
-annotation_citosk_genes = annotation_citosk_genes[startsWith(as.character(annotation_citosk_genes$seqnames),'chr'),] # selecting only chromosomes, excluding scaffolds
-annotation_citosk_genes # genes belonging to chr
-
-# leaving only counts for citoskeleton genes on chr
-quant_cpm = quant_cpm[rownames(annotation_citosk_genes),] # leaving only counts for chr genes (not scaffold genes)
-# adding gene name
-quant_cpm$gene_name = annotation_citosk_genes$gene_name 
-quant_cpm$group = annotation_citosk_genes$group 
-head(quant_cpm)
-
-#melt data frame into long format
-quant_cpm = reshape2::melt(
-  quant_cpm,
-  variable.name = 'sample_id',
-  value.name = 'counts',
-  variable.factor=FALSE)
-# melt converts df from wide to long format 
-# in long format values repeat in the first column
-head(quant_cpm)
-
-
-# adding info about samples from annotation
-# sample tissues and age
-quant_cpm$tissue = samples_meta[match(quant_cpm$sample_id, rownames(samples_meta)),]$tissue
-quant_cpm$age = samples_meta[match(quant_cpm$sample_id, rownames(samples_meta)),]$age
-quant_cpm[, 'age'] <- as.factor(quant_cpm[, 'age'])
-head(quant_cpm)
-
-# order - order of age, matching it with a number,
-# this is needed to walk around the fact that loess needs numbers on
-# both axis
-names(order) = c(1:length(order))
-quant_cpm$numb = match(quant_cpm$age, order) # adding a column that will indicate order of time
-# output - idx of 1st vector, corresponding to second
-head(quant_cpm)
+# boxplots
+plotBarplotExpression = function(gene.rse, tissue.col...){
+  # Box: The box represents the interquartile range (IQR), which contains the middle 50% of the data. The bottom and top edges of the box correspond to the first quartile (Q1) and third quartile (Q3), respectively.
+  # Median Line: A horizontal line inside the box that marks the median (Q2) of the data.
+  # Whiskers: Lines extending from the box that represent the range of the data, excluding outliers.
+    
+  numb.graphs = round(sqrt(length(gene.rse@rowRanges)))
+  numb.empty = numb.graphs**2 - length(gene.rse@rowRanges)
+  par(mfrow = c(numb.graphs, numb.graphs),
+      oma = c(4, 3, 1, 1),  # bottom, left, top, right.
+      mar = c(1, 1, 1, 1),  # bottom, left, top, right.
+      cex.axis = 0.8)  # Adjust the value as needed
+  
+  cpm = as.data.frame(t(gene.rse@assays@data$cpm))
+  cpm$tissue = gene.rse@colData$tissue
+  cpm$tissue = factor(cpm$tissue)
+  
+  gene.ids.ordered = gene.rse@rowRanges[order(gene.rse@rowRanges$gene_name),
+                                        c('gene_id', 'gene_name')]
+  gene.ids.ordered = setNames(gene.ids.ordered$gene_id, gene.ids.ordered$gene_name)
+  tissues = unique(gene.rse@colData$tissue)
+  
+  # Create boxplot
+  for (gene.name in names(gene.ids.ordered)){
+    gene.id = gene.ids.ordered[gene.name]
+    boxplot(cpm[[gene.id]] ~ tissue, data = cpm,
+            xlab = "Tissue", ylab = "CPM",
+            ylim = findYlim(rse.gene.cytosk),
+            xaxt = "n", yaxt = "n", 
+            main = gene.name, 
+            col=tissue.col)
+    axis(1, at = 1:length(tissues), labels = FALSE)  # x-axis ticks
+    axis(2, labels = FALSE)  # y-axis ticks
+    
+    boxplot.coord = par("mfg")
+    # Add y-axis only for rightmost plots
+    if (boxplot.coord[2] == 1) {
+      axis(2, las = 1)  
+      mtext("CPM", side = 2, line = 2.2, las = 0, cex = par("cex.axis"))
+    }
+    # Add x-axis only for bottom plots
+    if ((boxplot.coord[1] == 5) |
+        (boxplot.coord[2] == numb.graphs & boxplot.coord[1] == (numb.graphs-numb.empty)) ){
+      axis(1, at = 1:length(tissues), labels = tissues, las = 2) 
+      #text(1:length(tissues), par("usr")[3] - 0.3, tissues, srt = 45, xpd = TRUE)
+    }
+    grid(nx = NULL, ny = NULL)
+  }
+}
 
 
 # --- plotting
@@ -267,24 +181,15 @@ tissue.col=c(Brain="#3399CC",
              Ovary="#CC3399",
              Testis="#FF6600")
 
-tissues = unique(quant_cpm$tissue)
 
-for (i in genes$group %>% unique()){
-  gene_counts = quant_cpm[quant_cpm$group == i,] # selecting a genes belonging to the same group
-  print(ggplot(data=gene_counts, 
-       aes(x=as.numeric(numb), 
-           y = counts, 
-           colour = factor(tissue), 
-           group = tissue)) +
-  geom_point() +
-  stat_smooth(method="loess", se=F) + # linear regression curve
-  scale_color_manual(values = tissue.col) + # setting color pannel
-  labs(title = i,
-       x = "Age",
-       y = "CPM") +
-  scale_x_continuous(breaks = c(1:30),
-                     labels = unname(order))+  # replacing numbers with age
-  scale_y_continuous(limits = c(0,500)) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)  )+ # rotating axes names
-  facet_wrap(~gene_name)) # shared axes 
-}
+
+plotBarplotExpression(rse.gene.cytosk, tissue.col...)
+
+gene.ids.ordered = gene.info[order(gene.info$gene_name),]$gene_id
+tissues = unique(gene.rse@colData$tissue)
+ylim=findYlim(rse.gene.cytosk)
+
+cpm = as.data.frame(t(gene.rse@assays@data$cpm))
+cpm$tissue = gene.rse@colData$tissue
+cpm$tissue = factor(cpm$tissue)
+
