@@ -69,17 +69,12 @@ createGrid = function(gene.rse){
 }
 
 setParams = function(gene.rse){
-  # par(mfrow = c(5, 5),
-  #     oma = c(3, 2, 1, 1),  # bottom, left, top, right.
-  #     mar = c(1, 1, 1, 1),  # bottom, left, top, right.
-  #     cex.axis = 0.8)  # Adjust the value as needed
-  # 
-  # 
   numb = createGrid(gene.rse)
   par(mfrow = c(numb$numb.graphs, numb$numb.graphs),
       oma = c(4, 3, 1, 1),  # bottom, left, top, right.
       mar = c(1, 2, 1, 1),  # bottom, left, top, right.
-      cex.axis = 0.8)  # Adjust the value as needed
+      cex.axis = 0.7,  # Adjust the value as needed
+      bty="l")
 }
 
 setAxis = function(x.value, gene.name, gene.rse){
@@ -166,7 +161,6 @@ plotBarplotExpression = function(gene.rse, tissue.col...){
   # Create boxplot
   for (gene.name in names(gene.ids.ordered)){
     gene.id = gene.ids.ordered[gene.name]
-    par(bty="l")
     boxplot(cpm[[gene.id]] ~ tissue, data = cpm,
             xlab = "Tissue", ylab = "CPM",
             ylim = findYlim(rse.gene.cytosk),
