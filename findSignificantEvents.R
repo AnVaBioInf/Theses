@@ -32,7 +32,7 @@ makeAFile = function(rse.filtered, tissue, path_input){
   junction_table = rse2countDf(rse.filtered)
   sample_ids = colnames(junction_table)
   # location of the splice junction or exon, which must have the string:number-number format
-  junction_table$junction = sub('(:[-+*])', '' , rownames(junction_table))
+  junction_table$junction = sub('(:[-+*]$)', '' , rownames(junction_table))
   #  the type of splice junction
   junction_table$type = 'N_w'
   junction_table$geneID = rse.filtered@rowRanges$gene_id
@@ -125,7 +125,7 @@ runDiego = function(rse, tissue, reference_condition, path_input, path_output,
 makeDjeCoordinates <- function(coordinates_vector) {
   strand_to_numb_dict <- c("+" = 1, "-" = 2, "*" = 0)
   strand_signs <- sub(".*(?=.$)", "", coordinates_vector, perl = TRUE)
-  coordinates_vector =  sub("([0-9]+)(-)([0-9]+)", "\\1:\\3", coordinates_vector)
+  coordinates_vector =  sub("([0-9]{3,})(-)([0-9]{3,})", "\\1:\\3", coordinates_vector)
   coordinates_vector = sapply(seq_along(coordinates_vector), function(i) {
                                 sub(".$", strand_to_numb_dict[strand_signs[i]], coordinates_vector[i])
                               })
@@ -304,8 +304,11 @@ runSAJR = function(rse, tissue, reference_condition){
 }
 
 #======================
+# mergeToolsOutpus = function(){
+#   
+# }
 
-findSignJxns = function(rse, tissue, reference_condition='fetus',
+runTools = function(rse, tissue, reference_condition='fetus',
                         path_input = '/home/an/DIEGO_input_files',
                         path_output = '/home/an/DIEGO_output_files',
                         min_support = 1, # minimum jxn count for a splice site to be considered.
@@ -314,8 +317,8 @@ findSignJxns = function(rse, tissue, reference_condition='fetus',
                         FDR_threshold = 0.05, # adjusted p-value threshold
                         logFC_threshold = 0
                         ){
-  diego.output = runDiego(rse, tissue, reference_condition, path_input, path_output, 
-                                   min_support, min_samples, FC_threshold, FDR_threshold)
+  diego.output = runDiego(rse, tissue, reference_condition, path_input, path_output,
+                          min_support, min_samples, FC_threshold, FDR_threshold)
   print('diego running complete')
   dje.output = runDJExpress(rse, tissue, reference_condition, FDR_threshold, logFC_threshold)
   print('dje running complete')
@@ -324,5 +327,97 @@ findSignJxns = function(rse, tissue, reference_condition='fetus',
   list(diego.output=diego.output, dje.output=dje.output, sajr.output=sajr.output)
 }
 
-findSignJxns(rse.jxn.cytosk, 'Brain')
+mergeOutputs = function(output.list){
+  diego.output = output.list$diego.output 
+  dje.output = output.list$dje.output 
+  sajr.output = output.list$sajr.output
+  
+  diego.output = diego.output[, c('junction', 'abundance_change', 'q_val', 'geneID', 'geneName')]
+  dje.output = dje.output$dje.out[, c('junctionID', 'logFC', 'FDR')]
+  sajr.output = sajr.output[,c('dPSI', 'FDR.sajr')]
+
+  colnames(diego.output) = c("junction_id", "abund_change_diego", "FDR_diego", 'gene_id', 'gene_name')
+  colnames(dje.output) = c("junction_id", "logFC_dje", "FDR_dje")
+  colnames(sajr.output) = c("dPSI_sajr", "FDR_sajr")
+  
+  dje.output$junction_id = sub(":.$", "", dje.output$junction_id)
+  dje.output$junction_id = sub("([0-9]{3,})(:)([0-9]{3,})", "\\1-\\3", dje.output$junction_id)
+  sajr.output$junction_id = sub(':[-+*]:.*','', rownames(sajr.output))
+  sajr.output$junction_id_sajr = rownames(sajr.output)
+
+  output.merged.df = merge(dje.output, sajr.output, by = "junction_id", all = TRUE)
+  output.merged.df = merge(output.merged.df, diego.output, by = "junction_id", all = TRUE)
+  output.merged.df[,c('junction_id_sajr', 'junction_id', 'logFC_dje', 'FDR_dje', 'dPSI_sajr', 'FDR_sajr',
+                      'abund_change_diego', 'FDR_diego', 'gene_id', 'gene_name')]
+}
+
+# 2. Function to compare and categorize elements
+compareOutputs = function(jxn.ids.list) {
+  # 1. Find elements present in all vectors
+  all.tools = Reduce(intersect, jxn.ids.list)
+  
+  # 2. Find elements unique to each vector
+  unique.to.tool = lapply(seq_along(jxn.ids.list), function(i) {
+          unique = setdiff(jxn.ids.list[[i]], unname(unlist(jxn.ids.list[-i])))
+    return(unique)
+  })
+  names(unique.to.tool) = paste0(names(jxn.ids.list), '.unique')
+  
+  # 3. Find elements unique to subsets of jxn.ids.list (excluding those in all)
+  only.pair.tools = list()
+  tool.pairs = combn(seq_along(jxn.ids.list), 2, simplify = FALSE)  # Get all pairs of vector indices
+  for (pair in tool.pairs) {
+    i = pair[[1]]
+    j = pair[[2]]
+    common.pair = intersect(jxn.ids.list[[i]], jxn.ids.list[[j]])
+    common.pair = setdiff(common.pair, all.tools)
+    pair.name = paste(names(jxn.ids.list)[c(i, j)], collapse = "_and_")
+    only.pair.tools[[pair.name]] = common.pair
+  }
+  
+  # 4. Return the results
+  return(list(
+    all.tools = list(all.tools = all.tools),
+    only.pair.tools = only.pair.tools,
+    unique.to.tool = unique.to.tool
+  ))
+}
+
+findSignificantJxnsIds = function(jxns.significance.df, logfc_threshold, fdr_threshold, dpsi_threshold, abund_change_threshold){
+  # 1. Define filtering conditions for each tool
+  diego.sign.tf = abs(jxns.significance.df$abund_change_diego) >= abund_change_threshold & jxns.significance.df$FDR_diego <= fdr_threshold
+  dje.sign.tf = abs(jxns.significance.df$logFC) >= logfc_threshold & jxns.significance.df$FDR_dje <= fdr_threshold
+  sajr.sign.tf = abs(jxns.significance.df$dPSI) >= dpsi_threshold & jxns.significance.df$FDR_sajr <= fdr_threshold  
+  
+  # 2. Extract significant junction IDs for each tool
+  all.sign.jxns.diego = jxns.significance.df[diego.sign.tf, 'junction_id_sajr']
+  all.sign.jxns.dje = jxns.significance.df[dje.sign.tf, 'junction_id_sajr']
+  all.sign.jxns.sajr = jxns.significance.df[sajr.sign.tf, 'junction_id_sajr']
+  all.sign.jxns.sajr = all.sign.jxns.sajr[!is.na(all.sign.jxns.sajr)]
+  
+  all.sign.jxn.ids.tool.list = list(diego = all.sign.jxns.diego, 
+                                    dje = all.sign.jxns.dje, 
+                                    sajr = all.sign.jxns.sajr)
+  
+  sign.jxns.info = compareOutputs(all.sign.jxn.ids.tool.list)
+  sign.jxns.info = list(intersections = Reduce(append, sign.jxns.info))
+  
+  names(all.sign.jxn.ids.tool.list) = paste0(names(all.sign.jxn.ids.tool.list),'.all')
+  sign.jxns.info[['all.single.tool']] = all.sign.jxn.ids.tool.list
+
+  sign.jxns.info
+}
+
+#findSignif = 
+
+getJxnSignInfo = function(rse, tissue, 
+                          logfc_threshold=2, fdr_threshold=0.05, dpsi_threshold=0.1, abund_change_threshold=0.1){
+  tools.outputs.list = runTools(rse, tissue)
+  all.jxns.info.df = mergeOutputs(tools.outputs.list)
+  sign.jxns.info.list = findSignificantJxnsIds(all.jxns.info.df, logfc_threshold, 
+                                               fdr_threshold, dpsi_threshold, abund_change_threshold)
+  list(all.jxns.info = all.jxns.info.df, sign.jxns.info.list = sign.jxns.info.list)
+}
+
+#getJxnSignInfo(rse.jxn.cytosk, 'Brain')
 
